@@ -118,6 +118,7 @@ class Ping(BaseCheck):
             )
         if store:
             self.store_result(result)
+        print("PING CHECK RESULT === ", result)
         return result
 
     def store_result(self, result):
