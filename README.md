@@ -2,7 +2,7 @@
 
 - On a macro level, the check would work this way:
 
-    - OpenWISP **connects to the device** (only 1 check per device at time) via **SSH** and launches **iperf3** as a **client**, first in **TCP mode**, then in **UDP mode**, **iperf** is launched with the **-j flag** to obtain **json output**
+    - OpenWISP connects to the device (only 1 check per device at time) via SSH and launches iperf3 as a client, first in TCP mode, then in UDP mode, iperf is launched with the **-j flag** to obtain json output.
 
 - The collected data is parsed and stored as a **metric (bandwidth information and jitter)**
 
@@ -14,9 +14,9 @@
 - [x] Use connection module of openwisp-controller to connect to device using SSH.
 - [x] It should be optional and disabled by default.
 - [ ] It can be run default every night, and It can be configurable by organization in setting.
-- [ ] Implement a lock to allow only 1 Iperf check per server at a time.
+- [ ] {WIP} Implement a lock to allow only 1 Iperf check per server at a time.
+- [ ] {WIP} Implement logic which creates the metric, chart and alert settings objects.
 - [ ] SSH into device, launch Iperf TCP client, repeat for UDP, collect data of both tests in a data structure.
-- [ ] Implement logic which creates the metric, chart and alert settings objects.
 - [ ] Document how this check works.
 - [ ] Achieve at least 99% test coverage for this feature.
 
@@ -176,6 +176,11 @@ class Iperf(BaseCheck):
             chart.full_clean()
             chart.save()
 ```
+
+## Screenshots
+
+![Screenshot from 2022-04-16 15-23-22](https://user-images.githubusercontent.com/56113566/163670538-6b4c7ab6-978c-470e-aea6-53e1074696ac.png)
+
 
 ![Screenshot from 2022-04-16 13-12-24](https://user-images.githubusercontent.com/56113566/163666668-5fcb700b-1d6e-4a98-84fa-195501a9a737.png)
 
