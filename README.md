@@ -13,12 +13,12 @@
 - [x] Create Iperf check class.
 - [x] Use connection module of openwisp-controller to connect to device using SSH.
 - [x] It should be optional and disabled by default.
-- [ ] It can be run default every night, and It can be configurable by organization in setting.
 - [ ] {WIP} Implement a lock to allow only 1 Iperf check per server at a time.
 - [ ] {WIP} Implement logic which creates the metric, chart and alert settings objects.
-- [ ] SSH into device, launch Iperf TCP client, repeat for UDP, collect data of both tests in a data structure.
-- [ ] Document how this check works.
-- [ ] Achieve at least 99% test coverage for this feature.
+- It can be run default every night, and It can be configurable by organization in setting.
+- SSH into device, launch Iperf TCP client, repeat for UDP, collect data of both tests in a data structure.
+- Document how this check works.
+- Achieve at least 99% test coverage for this feature.
 
 
 ```python
