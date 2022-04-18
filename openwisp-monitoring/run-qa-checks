@@ -1,0 +1,29 @@
+#!/bin/bash
+set -e
+
+jshint openwisp_monitoring/device/static/monitoring/js/alert-settings.js
+jshint openwisp_monitoring/monitoring/static/monitoring/js/chart.js
+stylelint openwisp_monitoring/device/static/monitoring/css/monitoring.css
+
+
+openwisp-qa-check \
+  --migration-path "./openwisp_monitoring/check/migrations \
+                    ./openwisp_monitoring/device/migrations \
+                    ./openwisp_monitoring/monitoring/migrations" \
+  --migration-module "check device_monitoring monitoring"
+
+echo ''
+echo 'Running checks for SAMPLE_APP'
+SAMPLE_APP=1 openwisp-qa-check \
+    --skip-isort \
+    --skip-flake8 \
+    --skip-checkmigrations \
+    --skip-checkendline \
+    --skip-checkcommit \
+    --skip-black \
+    --csslinter \
+    --jslinter \
+    --migration-path "./tests/openwisp2/sample_check/migrations/ \
+                      ./tests/openwisp2/sample_device_monitoring/migrations/ \
+                      ./tests/openwisp2/sample_monitoring/migrations/" \
+    --migration-module "sample_check sample_device_monitoring sample_monitoring"

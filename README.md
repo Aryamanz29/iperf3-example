@@ -6,9 +6,11 @@
 
 - The collected data is parsed and stored as a **metric (bandwidth information and jitter)**
 
-- **SSH** connection is closed
+- **SSH** connection is closed.
+
 
 ## Approach : 
+
  #### Some prerequisites before testing this check 👇
 
  1. Make sure your client (openwrt-device) and server both have [Iperf3](https://iperf.fr/iperf-download.php) installed.  
@@ -58,7 +60,7 @@ Optional features available: CPU affinity setting, IPv6 flow label, TCP congesti
  ```
  4. Follow [installing-for-dev](https://github.com/openwisp/openwisp-monitoring#installing-for-development) section of [openwisp-monitoring.](https://github.com/openwisp/openwisp-monitoring)
 
-
+#### Alternate option repo for demo code (branch : iperf3) - https://github.com/Aryamanz29/openwisp-monitoring/tree/iperf3 
 
 ## Screenshots & Demo
 
@@ -140,3 +142,6 @@ Mon Apr 18 08:45:54 2022 authpriv.info dropbear[12428]: Exit (root): Exited norm
 #### - Server iperf result.
 
 ![Screenshot from 2022-04-16 13-12-47](https://user-images.githubusercontent.com/56113566/163666812-8db6fe63-9398-4f60-a287-5fbe78ea441f.png)
+
+### To implement a lock [WIP : Need to discuss with mentor]
+- Allow only 1 iperf check per server at time that is: for every server available, only 1 check can be performed at any one time, so the lock has to take this account when calculating the cache-key.
