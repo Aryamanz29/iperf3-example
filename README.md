@@ -8,182 +8,135 @@
 
 - **SSH** connection is closed
 
-## Expected outcomes
+## Approach : 
+ #### Some prerequisites before testing this check 👇
 
-- [x] Create Iperf check class.
-- [x] Use connection module of openwisp-controller to connect to device using SSH.
-- [x] It should be optional and disabled by default.
-- [ ] {WIP} Implement a lock to allow only 1 Iperf check per server at a time.
-- [ ] {WIP} Implement logic which creates the metric, chart and alert settings objects.
-- It can be run default every night, and It can be configurable by organization in setting.
-- SSH into device, launch Iperf TCP client, repeat for UDP, collect data of both tests in a data structure.
-- Document how this check works.
-- Achieve at least 99% test coverage for this feature.
+ 1. Make sure your client (openwrt-device) and server both have [Iperf3](https://iperf.fr/iperf-download.php) installed.  
+ ```bash
+# server
+$ iperf3 --version
+iperf 3.9 (cJSON 1.7.13)
 
+#client
+root@vm-openwrt:~ iperf3 --version
+iperf 3.7 (cJSON 1.5.2)
+Linux vm-openwrt 4.14.171 #0 SMP Thu Feb 27 21:05:12 2020 x86_64
+Optional features available: CPU affinity setting, IPv6 flow label, TCP congestion algorithm setting, sendfile / zerocopy, socket pacing
+ ```
 
-```python
+ **NOTE :** The host can by specified by hostname, IPv4 literal, or IPv6 literal
+```
+# for ex
+              iperf3 -c iperf3.example.com
 
-"""
-models.py
-"""
-def auto_iperf_check_receiver(sender, instance, created, **kwargs):
-    """
-    Implements OPENWISP_MONITORING_AUTO_IPERF
-    The creation step is executed in the background
-    """
-    # we need to skip this otherwise this task will be executed
-    # every time the configuration is requested via checksum
-    if not created:
-        return
-    transaction_on_commit(
-        lambda: auto_create_iperf_check.delay(
-            model=sender.__name__.lower(),
-            app_label=sender._meta.app_label,
-            object_id=str(instance.pk),
-        )
-    )
+              iperf3 -c 192.0.2.1
 
-"""
-app.py
-"""
-if app_settings.AUTO_IPERF:
-from .base.models import auto_iperf_check_receiver
-
-post_save.connect(
-    auto_iperf_check_receiver,
-    sender=load_model('config', 'Device'),
-    dispatch_uid='auto_iperf_check',
-)
-
-"""
-settings.py
-"""
-....
-....
-# By default this should be 'False'
-AUTO_IPERF = get_settings_value('AUTO_IPERF', True)
-IPERF_SERVERS = get_settings_value('IPERF_SERVERS', {
-    # Running on my local
-    '66fe76b5-c906-4eb6-b466-6ef93492e9af': ['192.168.5.109'],
-    #'<org-pk>': ['<ORG_IPERF_SERVER>']
-}) 
-
-""" 
-task.py
-"""
-
-@shared_task
-def auto_create_iperf_check(
-    model, app_label, object_id, check_model=None, content_type_model=None
-):
-    """
-    Called by openwisp_monitoring.check.models.auto_iperf_check_receiver
-    """
-    Check = check_model or get_check_model()
-    iperf_check_path = 'openwisp_monitoring.check.classes.Iperf'
-    has_check = Check.objects.filter(
-        object_id=object_id, content_type__model='device', check_type=iperf_check_path
-    ).exists()
-    # create new check only if necessary
-    if has_check:
-        return
-    content_type_model = content_type_model or ContentType
-    ct = content_type_model.objects.get(app_label=app_label, model=model)
-    check = Check(
-        name='Iperf', is_active=False, check_type=iperf_check_path, content_type=ct, object_id=object_id
-    )
-    check.full_clean()
-    check.save()
-
-""" 
-iperf.py
-"""
-
-class Iperf(BaseCheck):
-    def check(self, store=True):
-        # 192.168.5.109
-        servers = list(app_settings.IPERF_SERVERS.values())[0][0]
-        command = f'iperf3 -c {servers} -J'
-        # Check device connection
-        try:
-            device_connection = DeviceConnection.objects.get(device_id=self.related_object.id)
-            if device_connection.enabled and device_connection.is_working:
-                device_connection.connect()
-                print(f'DEVICE IS CONNECTED, {self.related_object.id}') 
-                res, exit_code = device_connection.connector_instance.exec_command(command, raise_unexpected_exit=False)
-                if exit_code != 0:
-                    print('---- Command Failed ----')
-                    print(res[0], type(res))
-                    return 
-                else:
-                    res_dict = self.get_res_data(res) 
-                    print('---- Command Output ----')
-                    print(res_dict, type(res_dict))
-                    if store:
-                        self.store_result(res_dict)
-                    return result       
-            else:
-                print(f'{self.related_object}: Connection not properly set')
-                return
-        # If device have not active connection warning logged (return)
-        except ObjectDoesNotExist:
-            return
-        pass
-
-   def get_res_data(self, res, mode=None):
-        res_loads = json.loads(res)
-        if mode is None:
-            result = {
-            'host' : res_loads['start']['connecting_to']['host'],
-            'port' : res_loads['start']['connecting_to']['port'],
-            'protocol' : res_loads['start']['test_start']['protocol'],
-            'duration' : res_loads['start']['test_start']['duration'],
-
-            'sum_sent_bytes' : res_loads['end']['sum_sent']['bytes'],
-            'sum_sent_bps' : res_loads['end']['sum_sent']['bits_per_second'],
-            'sum_sent_retransmits' : res_loads['end']['sum_sent']['retransmits'],
-            'sum_rec_bytes' : res_loads['end']['sum_received']['bytes'],
-            'sum_rec_bps' : res_loads['end']['sum_received']['bits_per_second'],
-            }
-            return result
-        # For UDP
-        else:
-            pass
-
-    def store_result(self, result):
-        """
-        store result in the DB
-        """
-        metric = self._get_metric()
-        metric.write(result)
-    
-    def _get_metric(self):
-        """
-        Gets or creates metric
-        """
-        metric, created = self._get_or_create_metric()
-        if created:
-            self._create_charts(metric)
-        return metric
-
-    def _create_charts(self, metric):
-        """
-        Creates Iperf related charts (Bandwith/Jitter)
-        """
-        charts = ['host', 'port', 'protocol', 'duration', 'sum_sent_bytes', 'sum_sent_bps', 'sum_sent_retransmits', 'sum_rec_bytes', 'sum_rec_bps']
-        for chart in charts:
-            chart = Chart(metric=metric, configuration=chart)
-            chart.full_clean()
-            chart.save()
+              iperf3 -c 2001:db8::1
 ```
 
-## Screenshots
+ - In `settings.py` configure this : 
+ ```python
+ # My local config
+ IPERF_SERVERS = get_settings_value(
+    'IPERF_SERVERS',
+    {
+        '66fe76b5-c906-4eb6-b466-6ef93492e9af': ['172.19.0.1'],
+        #'<org-pk>': ['<ORG_IPERF_SERVER>']
+    },
+)
+ ```
+ 2. Do check `credential section` of device (It must be enabled and working)
 
-![Screenshot from 2022-04-16 15-23-22](https://user-images.githubusercontent.com/56113566/163670538-6b4c7ab6-978c-470e-aea6-53e1074696ac.png)
+![Screenshot from 2022-04-18 15-58-26](https://user-images.githubusercontent.com/56113566/163795957-1c29a53f-f8e4-4130-9daa-0a8ff0b4c2c5.png)
 
 
-![Screenshot from 2022-04-16 13-12-24](https://user-images.githubusercontent.com/56113566/163666668-5fcb700b-1d6e-4a98-84fa-195501a9a737.png)
+ 3. Make sure iperf3 running on server.
+ ```bash
+ iperf -s
+ Server listening on 5201
+-----------------------------------------------------------
+ ```
+ 4. Follow [installing-for-dev](https://github.com/openwisp/openwisp-monitoring#installing-for-development) section of [openwisp-monitoring.](https://github.com/openwisp/openwisp-monitoring)
 
-![Screenshot from 2022-04-16 13-17-02](https://user-images.githubusercontent.com/56113566/163666784-acedc010-c31c-4dbd-9c54-09558c9a7a84.png)
+
+
+## Screenshots & Demo
+
+
+https://user-images.githubusercontent.com/56113566/163798227-0d30c91b-8741-4e32-8fdb-d6dc315bd3ee.mp4
+
+
+#### - By default this check is disabled.
+
+![Screenshot from 2022-04-18 14-54-39](https://user-images.githubusercontent.com/56113566/163787971-d6d3001f-2687-4982-ae4a-b040e458c15b.png)
+
+#### - Charts generated by Iperf check.
+
+
+![Screenshot from 2022-04-18 15-04-14](https://user-images.githubusercontent.com/56113566/163789635-33bcd68d-31b7-44d7-83ae-6d51ce56723a.png)
+
+![Screenshot from 2022-04-18 15-04-24](https://user-images.githubusercontent.com/56113566/163789639-c471b475-98d0-4c57-9e1f-bc1277ca6352.png)
+
+![Screenshot from 2022-04-18 15-04-42](https://user-images.githubusercontent.com/56113566/163789645-ce11f48c-791d-4529-abd8-18bb22646882.png)
+
+
+#### - Server & Client.
+
+```bash 
+root@vm-openwrt: logread -f
+Mon Apr 18 08:32:30 2022 daemon.info openwisp: Local configuration outdated
+Mon Apr 18 08:32:30 2022 daemon.info openwisp: Downloading configuration from controller...
+Mon Apr 18 08:32:30 2022 daemon.info openwisp: Configuration downloaded, now applying it...
+Mon Apr 18 08:32:35 2022 daemon.info openwisp: OpenWISP config agent stopping
+Mon Apr 18 08:32:35 2022 daemon.info openwisp: OpenWISP config agent started
+Mon Apr 18 08:35:00 2022 cron.info crond[1501]: USER root pid 13119 cmd /usr/sbin/openwisp-monitoring
+Mon Apr 18 08:36:00 2022 authpriv.info dropbear[13253]: Child connection from 192.168.56.1:49740
+Mon Apr 18 08:36:00 2022 authpriv.notice dropbear[13253]: Pubkey auth succeeded for 'root' with key sha1!! 24:3a:1b:3f:54:66:a5:0e:3f:6a:dd:24:ea:d3:4a:b7:27:e6:f3:e2 from 192.168.56.1:49740
+Mon Apr 18 08:40:00 2022 cron.info crond[1501]: USER root pid 13766 cmd /usr/sbin/openwisp-monitoring
+Mon Apr 18 08:41:00 2022 authpriv.info dropbear[13910]: Child connection from 192.168.56.1:49742
+Mon Apr 18 08:41:00 2022 authpriv.notice dropbear[13910]: Pubkey auth succeeded for 'root' with key sha1!! 24:3a:1b:3f:54:66:a5:0e:3f:6a:dd:24:ea:d3:4a:b7:27:e6:f3:e2 from 192.168.56.1:49742
+Mon Apr 18 08:45:54 2022 authpriv.info dropbear[12428]: Exit (root): Exited normally
+``` 
+
+#### - Check if device has active connection.
+![Screenshot from 2022-04-18 15-11-31](https://user-images.githubusercontent.com/56113566/163790778-73c382b0-5880-44b7-aeee-ae1957bca800.png)
+
+#### - Launches iperf3 as a client TCP/UDP mode.
+
+![Screenshot from 2022-04-18 15-11-57](https://user-images.githubusercontent.com/56113566/163790783-d1dbc5d4-db23-442a-885f-a7dce7ee61f4.png)
+
+#### - Store value '0' if server is down/busy.
+
+![Screenshot from 2022-04-18 15-11-47](https://user-images.githubusercontent.com/56113566/163790782-99b28d00-117a-4387-a49f-9f5cd7081caf.png)
+
+```python
+# example 
+ self.store_result({
+    'iperf_result': 0,
+    'sum_sent_bps': 0.0,
+    'sum_rec_bps': 0.0,
+     ...
+     ... 
+ })
+```
+#### - If device has not actice connection, Skip check.
+
+
+![Screenshot from 2022-04-18 15-50-36](https://user-images.githubusercontent.com/56113566/163795276-f02c07ec-370a-43e2-a676-f6c1e3c7145b.png)
+
+
+#### - Metric & Charts
+
+```bash
+>> mt.objects.all()
+<QuerySet [<Metric: Ping (Device: vm-openwrt)>, <Metric: Configuration Applied (Device: vm-openwrt)>, <Metric: eth1 traffic (Device: vm-openwrt)>, <Metric: CPU usage (Device: vm-openwrt)>, <Metric: Disk usage (Device: vm-openwrt)>, <Metric: Memory usage (Device: vm-openwrt)>, <Metric: Iperf (Device: vm-openwrt)>]>
+# <Metric: Iperf (Device: vm-openwrt)> 'name': 'Iperf', 'key': 'iperf', 'field_name': 'iperf_result', 'configuration': 'iperf'
+
+>>> ch.objects.all()
+<QuerySet [<Chart: Uptime>, <Chart: Packet loss>, <Chart: Round Trip Time>, <Chart: Traffic>, <Chart: CPU Load>, <Chart: Disk Usage>, <Chart: Memory Usage>, <Chart: Bits per second>, <Chart: Transfer>, <Chart: Retransmits>]>
+# <Chart: Bits per second> 'configuration': 'bps', <Chart: Transfer> 'configuration': 'transfer', Chart: Retransmits> 'configuration': 'retransmits'
+```
+
+#### - Server iperf result.
 
 ![Screenshot from 2022-04-16 13-12-47](https://user-images.githubusercontent.com/56113566/163666812-8db6fe63-9398-4f60-a287-5fbe78ea441f.png)
