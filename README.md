@@ -10,8 +10,171 @@
 
 
 ## Approach : 
+ - [x] Create `Iperf` check class.
+    
+    - We can extend [BaseCheck](https://github.com/openwisp/openwisp-monitoring/blob/8a1706f15a91491f816962159c7ea1603412bfba/openwisp_monitoring/check/classes/base.py#L10) for `openwisp_monitoring/check/classes/iperf.py`
+    
+    - Using [DeviceConnection](https://github.com/openwisp/openwisp-controller/blob/487641b95cbda4580f19b0b1e6515f6a264e65fa/openwisp_controller/connection/base/models.py#L210) & [Device](https://github.com/openwisp/openwisp-controller/blob/487641b95cbda4580f19b0b1e6515f6a264e65fa/openwisp_controller/config/base/device.py#L18) we can check if device has a active connection or not.
 
- #### Some prerequisites before testing this check 👇
+    ```py
+    #For ex
+    try:
+        device_connection = DeviceConnection.objects.get(
+                    device_id=self.related_object.id
+                ) 
+        if device_connection.enabled and device_connection.is_working:
+            # Do something
+        else :
+            # Connection not properly set
+        
+        # If device have not active connection warning logged (return)
+        except ObjectDoesNotExist:
+            logger.warning(f'{self.related_object}: Device has no active connection, Iperf skip')
+            return
+    ```
+ - [x] Allow configuring the iperf server globally and by organization with a setting,
+    - User can configure multiple iperf servers corresponding to `organization`
+    ```py
+        AUTO_IPERF = get_settings_value('AUTO_IPERF', True)
+        IPERF_SERVERS = get_settings_value(
+        'IPERF_SERVERS',
+        {
+            # Running on my local
+            '66fe76b5-c906-4eb6-b466-6ef93492e9af': ['172.19.0.1'],
+            #'<org-pk>': ['<ORG_IPERF_SERVER>']
+        },)
+        # In iperf.py 
+        # For ex (need to make more configurable)
+        servers = list(app_settings.IPERF_SERVERS.values())[0][0]
+
+    ```
+ - [x] We can run it by default every night.
+    - Using celery [crontab schedules](https://docs.celeryq.dev/en/latest/userguide/periodic-tasks.html#crontab-schedules) we can configure check task to run on specific time, It also covers most of the time variations for scheduling celery tasks.
+
+ - [x] Handle failures, if server is down, we can store 0, which would trigger an alert (investigate the alert settings functionality)
+    - Using `exit_code` of executed commands on device we can handle this case (Todo: Need to explore  more better option)
+    ```py
+     res, exit_code = device_connection.connector_instance.exec_command(
+                    command, raise_unexpected_exit=False
+                )
+         if exit_code != 0:
+                    ## command_exec fails
+                    if store:
+                        self.store_result(
+                            {
+                                'iperf_result': 0,
+                                'sum_sent_bps': 0.0,
+                                'sum_rec_bps': 0.0
+                                ...
+                                ...
+                            }
+    ```
+ - [x] Implement logic which creates the metric, chart and alert settings objects
+    - Currently iperf data extracted from json output of executed command that run on devices.
+    ```py
+    # Example
+     res_loads = json.loads(res)
+        if mode is None:
+            result = {
+                #  
+                # 'host' : res_loads['start']['connecting_to']['host'],
+                # 'port' : res_loads['start']['connecting_to']['port'],
+                # 'protocol' : res_loads['start']['test_start']['protocol'],
+                # 'duration' : res_loads['start']['test_start']['duration'],
+                'iperf_result': 1,
+                # Bandwith in Gbps
+                'sum_sent_bps': round(
+                    res_loads['end']['sum_sent']['bits_per_second'] / 1000000000, 2
+                ),
+                'sum_rec_bps': round(
+                    res_loads['end']['sum_received']['bits_per_second'] / 1000000000, 2
+                ),
+                ...
+                ...
+    ```
+    - First metric get created using `self._get_or_create_metric()` followed by charts then result (dict) will be use to write into timeseries database.
+
+    ```py
+     metric, created = self._get_or_create_metric()
+        if created:
+            self._create_charts(metric)
+        return metric
+
+        charts = ['bps', 'transfer', 'retransmits']
+        for chart in charts:
+            chart = Chart(metric=metric, configuration=chart)
+            chart.full_clean()
+            chart.save()
+
+    ```
+    - Define `metric configuration` or use  `register_metric().`
+
+    ```py
+        'iperf': {
+            'label': _('Iperf'),
+            'name': 'Iperf',
+            'key': 'iperf',
+            'field_name': 'iperf_result',
+            'related_fields': [
+                'sum_sent_bps',
+                'sum_rec_bps',
+                'sum_sent_bytes',
+                'sum_rec_bytes',
+                'sum_sent_retransmits',
+            ],
+            'charts': {
+                'bps': {
+                    'type': 'scatter',
+                    'title': _('Bits per second'),
+                    'colors': (DEFAULT_COLORS[0], DEFAULT_COLORS[8]),
+                    'description': _('Iperf3 bits per second in TCP mode.'),
+                    'summary_labels': [
+                        _('Sent BPS'),
+                        _('Received BPS'),
+                    ],
+                    'unit': _(' Gbps'),
+                    'order': 280,
+                    'query': chart_query['bps'],
+                },
+                'transfer': {
+                    'type': 'scatter',
+                    'title': _('Transfer'),
+                    'colors': (DEFAULT_COLORS[9], DEFAULT_COLORS[6]),
+                    'description': _('Iperf3 transfer in TCP mode.'),
+                    'summary_labels': [
+                        _('Sent Bytes'),
+                        _('Received Bytes'),
+                    ],
+                    'unit': _(' GBytes'),
+                    'order': 290,
+                    'query': chart_query['transfer'],
+                },
+                'retransmits': {
+                    'type': 'bar',
+                    'title': _('Retransmits'),
+                    'colors': (DEFAULT_COLORS[4]),
+                    'description': _('No. of retransmits during Iperf3 test in TCP mode.'),
+                    'unit': '',
+                    'order': 300,
+                    'query': chart_query['retransmits'],
+                },
+            },
+        },
+    }
+    ```
+
+ - [x] Save data (tcp max bandwidth, UDP jitter).
+    - Perfom similar test in UDP `ie. command = f'iperf3 -u -c {servers} -J'` followed by creation of metric and charts and saving test data.
+ 
+ - [x] To Implement a lock (1 iperf check per server at time)
+    - For this I've found some good references that I need to first discuss with project mentors. 
+    - References :
+        - https://docs.celeryq.dev/en/latest/tutorials/task-cookbook.html#ensuring-a-task-is-only-executed-one-at-a-time 
+        - https://stackoverflow.com/questions/12003221/celery-task-schedule-ensuring-a-task-is-only-executed-one-at-a-time
+
+
+
+ ### Prerequisites before testing this check : 
 
  1. Make sure your client (openwrt-device) and server both have [Iperf3](https://iperf.fr/iperf-download.php) installed.  
  ```bash
@@ -143,5 +306,3 @@ Mon Apr 18 08:45:54 2022 authpriv.info dropbear[12428]: Exit (root): Exited norm
 
 ![Screenshot from 2022-04-16 13-12-47](https://user-images.githubusercontent.com/56113566/163666812-8db6fe63-9398-4f60-a287-5fbe78ea441f.png)
 
-### To implement a lock [WIP : Need to discuss with mentor]
-- Allow only 1 iperf check per server at time that is: for every server available, only 1 check can be performed at any one time, so the lock has to take this account when calculating the cache-key.
