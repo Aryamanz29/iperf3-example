@@ -15,7 +15,7 @@
     
     - We can extend [BaseCheck](https://github.com/openwisp/openwisp-monitoring/blob/8a1706f15a91491f816962159c7ea1603412bfba/openwisp_monitoring/check/classes/base.py#L10) for `openwisp_monitoring/check/classes/iperf.py`
     
-    - Using [DeviceConnection](https://github.com/openwisp/openwisp-controller/blob/487641b95cbda4580f19b0b1e6515f6a264e65fa/openwisp_controller/connection/base/models.py#L210) & [Device](https://github.com/openwisp/openwisp-controller/blob/487641b95cbda4580f19b0b1e6515f6a264e65fa/openwisp_controller/config/base/device.py#L18) we can check if device has a active connection or not.
+    - Using [DeviceConnection](https://github.com/openwisp/openwisp-controller/blob/487641b95cbda4580f19b0b1e6515f6a264e65fa/openwisp_controller/connection/base/models.py#L210) & [Device](https://github.com/openwisp/openwisp-controller/blob/487641b95cbda4580f19b0b1e6515f6a264e65fa/openwisp_controller/config/base/device.py#L18) `(openwisp-controller/connection)` we can check if device has a active connection or not.
 
     ```py
     #For ex
@@ -49,8 +49,31 @@
         servers = list(app_settings.IPERF_SERVERS.values())[0][0]
 
     ```
+ - [x] This check should be optional and disabled by default.
+    - Celery task [create_iperf_check](https://github.com/Aryamanz29/iperf3-example/blob/b89531b35ceb1ae47fa21ba5b67bdd3a78f4d652/openwisp-monitoring/openwisp_monitoring/check/tasks.py#L106) is called when new device is registered to create iperf check, Setted `is_active=False`
+    ```python
+      if has_check:
+        return
+        content_type_model = content_type_model or ContentType
+        ct = content_type_model.objects.get(app_label=app_label, model=model)
+        check = Check(
+            name='Iperf',
+            is_active=False,
+            check_type=iperf_check_path,
+            content_type=ct,
+            object_id=object_id,
+        )
+        check.full_clean()
+        check.save()
+    ```
+
  - [x] We can run it by default every night.
     - Using celery [crontab schedules](https://docs.celeryq.dev/en/latest/userguide/periodic-tasks.html#crontab-schedules) we can configure check task to run on specific time, It also covers most of the time variations for scheduling celery tasks.
+    ```python
+    # Ex.
+    # Task schedule for 5 AM and 12 PM
+    @periodic_task(run_every=crontab(minute=0, hour='5,12'))
+    ```
 
  - [x] Handle failures, if server is down, we can store 0, which would trigger an alert (investigate the alert settings functionality)
     - Using `exit_code` of executed commands on device we can handle this case (Todo: Need to explore  more better option)
@@ -166,7 +189,7 @@
     ```
 
  - [x] Save data (tcp max bandwidth, UDP jitter).
-    - Perfom similar test in UDP `ie. command = f'iperf3 -u -c {servers} -J'` followed by creation of metric and charts and saving test data.
+    - Perform similar test in UDP `ie. command = f'iperf3 -u -c {servers} -J'` followed by creation of metric and charts and saving test data.
  
  - [x] To Implement a lock (1 iperf check per server at time)
     - For this I've found some good references that I need to first discuss with project mentors. 
@@ -226,7 +249,7 @@ Optional features available: CPU affinity setting, IPv6 flow label, TCP congesti
  ```
  4. Follow [installing-for-dev](https://github.com/openwisp/openwisp-monitoring#installing-for-development) section of [openwisp-monitoring.](https://github.com/openwisp/openwisp-monitoring)
 
-#### Alternate option repo for demo code (branch : iperf3) - https://github.com/Aryamanz29/openwisp-monitoring/tree/iperf3 
+### `NOTE:` Alternate repo for demo code (branch : iperf3) - https://github.com/Aryamanz29/openwisp-monitoring/tree/iperf3 
 
 ![-------------------------------------------------------------](https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/rainbow.png)
 
