@@ -253,7 +253,7 @@ Optional features available: CPU affinity setting, IPv6 flow label, TCP congesti
 
 ![-------------------------------------------------------------](https://raw.githubusercontent.com/andreasbm/readme/master/assets/lines/rainbow.png)
 
-## Screenshots & Demo :
+## Screenshots & Demo (Use Chrome browser) :
 
 
 https://user-images.githubusercontent.com/56113566/163798227-0d30c91b-8741-4e32-8fdb-d6dc315bd3ee.mp4
